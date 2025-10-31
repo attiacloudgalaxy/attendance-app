@@ -1,6 +1,267 @@
 # Attendance Management System
 
-A comprehensive attendance and absence management system built with Node.js/Express backend and React frontend, featuring two-factor authentication via email.
+# Attendance Management System
+
+A comprehensive attendance and absence tracking system built with React frontend, Node.js/Express backend, and MySQL database.
+
+## Features
+
+### Core Functionality
+- 🎯 **8-Hour Daily Tracking**: Automatic calculation of daily work hours with 8-hour minimum requirement
+- 🔐 **Two-Factor Authentication**: Email-based 2FA for enhanced security
+- 👤 **User Management**: Complete user registration and profile management
+- 📊 **Real-Time Dashboard**: Live progress tracking and attendance visualization
+- 📈 **Comprehensive Reports**: Generate detailed attendance reports with date ranges
+
+### Advanced Features
+- 🎨 **Modern Theme**: Beautiful baby blue theme with glass morphism design
+- ⏰ **Live Progress Tracker**: Real-time tracking of hours worked out of 8 with 30-second updates
+- 🔄 **Manual Attendance**: Admin capability to manually log attendance records
+- 👑 **Admin Portal**: Separate admin interface with distinctive purple theme
+- 📱 **Responsive Design**: Works seamlessly on desktop and mobile devices
+
+### Security & Performance
+- 🛡️ **JWT Authentication**: Secure token-based authentication
+- 🔒 **Password Encryption**: Bcrypt hashing for password security
+- 🚦 **Rate Limiting**: API protection with configurable rate limits
+- 🔍 **Input Validation**: Comprehensive data validation and sanitization
+
+## Tech Stack
+
+### Backend
+- **Runtime**: Node.js
+- **Framework**: Express.js
+- **Database**: MySQL 9.5.0
+- **Authentication**: JWT + Bcrypt
+- **Email**: Nodemailer with enterprise email support
+- **Security**: Helmet, CORS, Rate limiting
+
+### Frontend
+- **Framework**: React 18
+- **Styling**: Tailwind CSS + Custom CSS
+- **State Management**: Context API
+- **HTTP Client**: Axios
+- **Port**: 3111
+
+### Database Schema
+- `users` - User profiles and authentication
+- `attendance_records` - Daily attendance tracking
+- `auth_tokens` - 2FA token management
+- `user_sessions` - Session management
+- `report_generations` - Report tracking with counters
+
+## Installation
+
+### Prerequisites
+- Node.js (v16+)
+- MySQL (v8+)
+- npm or yarn
+
+### Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd attendance-app
+   ```
+
+2. **Database Setup**
+   ```bash
+   # Create MySQL database
+   mysql -u root -p
+   CREATE DATABASE attendance_system;
+   
+   # Run schema
+   mysql -u root -p attendance_system < database/schema.sql
+   ```
+
+3. **Backend Setup**
+   ```bash
+   cd backend
+   npm install
+   
+   # Configure environment
+   cp .env.example .env
+   # Edit .env with your database and email settings
+   
+   # Run migrations
+   node scripts/migrate.js
+   ```
+
+4. **Frontend Setup**
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+## Configuration
+
+### Environment Variables
+
+**Backend (.env)**
+```env
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=attendance_system
+JWT_SECRET=your_jwt_secret
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASS=your_app_password
+NODE_ENV=development
+```
+
+**Frontend (.env)**
+```env
+REACT_APP_API_URL=http://localhost:3001
+PORT=3111
+```
+
+## Running the Application
+
+### Development Mode
+
+1. **Start Backend**
+   ```bash
+   cd backend
+   npm start
+   # Server runs on http://localhost:3001
+   ```
+
+2. **Start Frontend**
+   ```bash
+   cd frontend
+   npm start
+   # App runs on http://localhost:3111
+   ```
+
+### Production Mode
+
+1. **Build Frontend**
+   ```bash
+   cd frontend
+   npm run build
+   ```
+
+2. **Start Production Server**
+   ```bash
+   cd backend
+   NODE_ENV=production npm start
+   ```
+
+## Default Users
+
+The system comes with pre-configured test users:
+
+### Admin User
+- **Email**: admin@company.com
+- **Password**: admin123
+- **Role**: Administrator
+
+### Regular Users
+- **Email**: basim@company.com, **Password**: basim123
+- **Email**: sara@company.com, **Password**: sara123
+- **Email**: ahmed@company.com, **Password**: ahmed123
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login (sends 2FA)
+- `POST /api/auth/verify-2fa` - Verify 2FA token
+- `POST /api/auth/logout` - User logout
+
+### Attendance
+- `GET /api/attendance/records` - Get user attendance
+- `POST /api/attendance/clock-in` - Clock in
+- `POST /api/attendance/clock-out` - Clock out
+- `GET /api/attendance/status` - Current status
+- `GET /api/attendance/progress` - Live progress data
+
+### Admin
+- `GET /api/users` - List all users (Admin)
+- `POST /api/attendance/manual` - Manual attendance (Admin)
+- `GET /api/reports/daily` - Generate reports (Admin)
+
+## Theme System
+
+The application features a modern theme system with:
+
+### User Interface
+- **Primary Colors**: Baby blue gradients (#87ceeb to #4682b4)
+- **Accent Colors**: Sky blue (#0ea5e9)
+- **Design**: Glass morphism with subtle shadows and blur effects
+
+### Admin Interface
+- **Primary Colors**: Purple/Magenta gradients (#d946ef to #701a75)
+- **Accent Colors**: Violet (#a855f7)
+- **Design**: Distinctive styling to differentiate admin functions
+
+### Features
+- Custom scrollbars with themed colors
+- Smooth transitions and hover effects
+- Responsive gradient backgrounds
+- Modern card-based layouts
+
+## Security Features
+
+1. **Password Security**: Bcrypt hashing with salt rounds
+2. **JWT Tokens**: Secure authentication with expiration
+3. **2FA**: Email-based two-factor authentication
+4. **Rate Limiting**: Configurable API rate limits
+5. **Input Validation**: Comprehensive data validation
+6. **CORS**: Configured cross-origin resource sharing
+7. **Session Management**: Secure session handling
+
+## Performance Optimizations
+
+1. **Live Updates**: Real-time progress tracking every 30 seconds
+2. **Efficient Queries**: Optimized database queries with indexes
+3. **Caching**: Strategic caching for better performance
+4. **Lazy Loading**: Component-based loading for faster initial load
+5. **Responsive Design**: Mobile-optimized interface
+
+## Deployment
+
+### Production Checklist
+- [ ] Configure production database
+- [ ] Set up SSL certificates
+- [ ] Configure environment variables
+- [ ] Set up reverse proxy (nginx/Apache)
+- [ ] Configure email service (Office365/Gmail)
+- [ ] Set up monitoring and logging
+- [ ] Configure backup strategy
+
+### Recommended Production Setup
+- **Database**: MySQL 8.0+ with proper indexing
+- **Email**: Office365 or Google Workspace for enterprise email
+- **Server**: Ubuntu 20.04+ with PM2 for process management
+- **Proxy**: Nginx with SSL termination
+- **Monitoring**: Log aggregation and health checks
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Support
+
+For support and questions:
+- Create an issue in the GitHub repository
+- Contact the development team
+- Check the documentation for common solutions
+
+---
+
+Built with ❤️ using modern web technologies for efficient attendance management.
 
 ## Features
 
