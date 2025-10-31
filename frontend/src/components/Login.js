@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,9 +15,36 @@ const Login = () => {
     token: '',
   });
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   
   const { login, verify2FA, error } = useAuth();
   const navigate = useNavigate();
+
+  // Load saved credentials on component mount
+  useEffect(() => {
+    const savedCredentials = localStorage.getItem('savedCredentials');
+    if (savedCredentials) {
+      try {
+        const { email, password } = JSON.parse(atob(savedCredentials));
+        setFormData({ email, password });
+        setRememberMe(true);
+      } catch (error) {
+        // Clear corrupted data
+        localStorage.removeItem('savedCredentials');
+      }
+    }
+  }, []);
+
+  // Save or clear credentials based on remember me
+  const handleCredentialsSave = (email, password) => {
+    if (rememberMe) {
+      // Simple base64 encoding (not secure encryption, just obfuscation)
+      const credentials = btoa(JSON.stringify({ email, password }));
+      localStorage.setItem('savedCredentials', credentials);
+    } else {
+      localStorage.removeItem('savedCredentials');
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -35,6 +62,8 @@ const Login = () => {
       const result = await login(formData.email, formData.password);
       
       if (result.success && result.requiresTwoFA) {
+        // Save credentials if login is successful and remember me is checked
+        handleCredentialsSave(formData.email, formData.password);
         setTwoFAData({ userId: result.userId, token: '' });
         setStep('2fa');
         toast.success('Verification code sent to your email');
@@ -77,6 +106,32 @@ const Login = () => {
       }
     } catch (error) {
       toast.error('Failed to resend code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getMFACode = async () => {
+    setLoading(true);
+    try {
+      // Make API call to get current MFA code
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/auth/dev/get-mfa-code/${twoFAData.userId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(`Current MFA Code: ${data.token}`, { duration: 10000 });
+        // Auto-fill the MFA code
+        setTwoFAData(prev => ({ ...prev, token: data.token }));
+      } else {
+        toast.error('Failed to get MFA code');
+      }
+    } catch (error) {
+      toast.error('Error getting MFA code');
     } finally {
       setLoading(false);
     }
@@ -144,6 +199,20 @@ const Login = () => {
             </div>
 
             <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <input
+                  id="remember-me"
+                  name="remember-me"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
+                />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
+                  Remember me
+                </label>
+              </div>
+              
               <Link
                 to="/forgot-password"
                 className="text-sm text-primary-600 hover:text-primary-500"
@@ -196,15 +265,27 @@ const Login = () => {
               </button>
             </div>
 
-            <div className="text-center">
+            <div className="text-center space-y-2">
               <button
                 type="button"
                 onClick={resendCode}
                 disabled={loading}
-                className="text-sm text-primary-600 hover:text-primary-500 disabled:opacity-50"
+                className="text-sm text-primary-600 hover:text-primary-500 disabled:opacity-50 block w-full"
               >
                 Didn't receive the code? Resend
               </button>
+              
+              {/* Development/Testing Feature - Get MFA Code */}
+              {process.env.NODE_ENV === 'development' && (
+                <button
+                  type="button"
+                  onClick={getMFACode}
+                  disabled={loading}
+                  className="text-sm bg-yellow-100 text-yellow-800 hover:bg-yellow-200 px-3 py-2 rounded border border-yellow-300 disabled:opacity-50 w-full"
+                >
+                  🔧 Get Current MFA Code (Dev Mode)
+                </button>
+              )}
             </div>
 
             <div className="text-center">

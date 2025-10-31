@@ -68,6 +68,7 @@ export const attendanceAPI = {
   getStatus: (userId) => api.get(`/attendance/status/${userId || ''}`),
   getRecords: (userId, params) => api.get(`/attendance/records/${userId || ''}`, { params }),
   getTodayAll: () => api.get('/attendance/today/all'),
+  createManualRecord: (attendanceData) => api.post('/attendance/manual', attendanceData),
 };
 
 // User API calls

@@ -9,65 +9,53 @@ const router = express.Router();
 // Apply authentication to all routes
 router.use(authenticateToken);
 
-// Get all users (admin only)
+// Simple test endpoint
+router.get('/test', requireAdmin, async (req, res) => {
+    try {
+        res.json({
+            success: true,
+            message: 'Users endpoint is working',
+            user: req.user
+        });
+    } catch (error) {
+        console.error('Test error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Test failed'
+        });
+    }
+});
+
+// Get all users (admin only) - simplified version
 router.get('/', requireAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 20, search, department, active = 'true' } = req.query;
+        console.log('Users endpoint hit by user:', req.user);
         
-        let whereClause = 'WHERE 1=1';
-        let queryParams = [];
+        // Simple query to get all users
+        const users = await executeQuery(
+            'SELECT id, employee_id, email, first_name, last_name, department, position, is_active, is_admin FROM users WHERE is_active = 1 ORDER BY first_name, last_name'
+        );
 
-        if (search) {
-            whereClause += ` AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR employee_id LIKE ?)`;
-            const searchPattern = `%${search}%`;
-            queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
-        }
-
-        if (department) {
-            whereClause += ' AND department = ?';
-            queryParams.push(department);
-        }
-
-        if (active !== 'all') {
-            whereClause += ' AND is_active = ?';
-            queryParams.push(active === 'true');
-        }
-
-        const offset = (parseInt(page) - 1) * parseInt(limit);
-
-        // Get total count
-        const countQuery = `SELECT COUNT(*) as total FROM users ${whereClause}`;
-        const countResult = await executeQuery(countQuery, queryParams);
-        const totalUsers = countResult[0].total;
-
-        // Get users with pagination
-        const usersQuery = `
-            SELECT id, employee_id, email, first_name, last_name, department, 
-                   position, hire_date, phone, is_active, is_admin, created_at
-            FROM users 
-            ${whereClause}
-            ORDER BY first_name, last_name
-            LIMIT ? OFFSET ?
-        `;
-        
-        const users = await executeQuery(usersQuery, [...queryParams, parseInt(limit), offset]);
+        console.log('Users found:', users.length);
 
         res.json({
             success: true,
             users: users,
             pagination: {
-                currentPage: parseInt(page),
-                totalPages: Math.ceil(totalUsers / parseInt(limit)),
-                totalUsers: totalUsers,
-                limit: parseInt(limit)
+                currentPage: 1,
+                totalPages: 1,
+                totalUsers: users.length,
+                limit: 50
             }
         });
 
     } catch (error) {
         console.error('Get users error:', error);
+        console.error('Error stack:', error.stack);
         res.status(500).json({
             success: false,
-            message: 'Internal server error'
+            message: 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });

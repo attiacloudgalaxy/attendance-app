@@ -389,4 +389,55 @@ router.get('/validate', authenticateToken, (req, res) => {
     });
 });
 
+// Development endpoint to get current MFA code
+router.get('/dev/get-mfa-code/:userId', async (req, res) => {
+    // Only allow in development environment
+    if (process.env.NODE_ENV !== 'development') {
+        return res.status(404).json({ success: false, message: 'Endpoint not available' });
+    }
+
+    try {
+        const { userId } = req.params;
+
+        // First try to get from database (using 'login' type for 2FA tokens)
+        const tokens = await executeQuery(
+            'SELECT token FROM auth_tokens WHERE user_id = ? AND token_type = "login" AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+            [userId]
+        );
+
+        if (tokens.length > 0) {
+            return res.json({
+                success: true,
+                token: tokens[0].token,
+                message: 'Current MFA code retrieved from database'
+            });
+        }
+
+        // If no token in database, generate a new one for development
+        const newToken = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        // Store it in database for consistency
+        await executeQuery(
+            'INSERT INTO auth_tokens (user_id, token, token_type, expires_at) VALUES (?, ?, "login", DATE_ADD(NOW(), INTERVAL 15 MINUTE))',
+            [userId, newToken]
+        );
+
+        console.log(`\n🔐 DEV MFA CODE FOR USER ${userId}: ${newToken}\n`);
+        console.log('📧 Generated via API endpoint for development');
+
+        res.json({
+            success: true,
+            token: newToken,
+            message: 'New MFA code generated for development'
+        });
+
+    } catch (error) {
+        console.error('Error getting MFA code:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get MFA code'
+        });
+    }
+});
+
 module.exports = router;

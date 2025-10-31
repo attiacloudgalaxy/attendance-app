@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Production builds
+build/
+dist/
+
+# Environment variables
+.env
+backend/.env
+frontend/.env
+
+# Logs
+*.log
+backend/server.log
+frontend/frontend.log
+backend/nohup.out
+
+# Cache files
+.cache/
+frontend/node_modules/.cache/
+
+# Package lock files (keep package.json but ignore lock files for cleaner git history)
+package-lock.json
+yarn.lock
+
+# SSL certificates and keys
+certs/
+*.pem
+*.key
+*.crt
+
+# Database
+*.db
+*.sqlite
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Documentation files (these seem to be status files we don't need in repo)
+*-COMPLETE.md
+*-READY.md
+*-FIXED.md
+*-STATUS.md
+ADMIN-FEATURES-COMPLETE.md
+ENTERPRISE-EMAIL-SETUP.md
+LOGIN-ROUTE-FIXED.md
+MFA-BUTTON-FEATURE.md
+MFA-BUTTON-FIXED.md
+NEW-FEATURES-COMPLETE.md
+OFFICE365-READY.md
+PORT-UPDATE-3111.md
+PRODUCTION-READY.md
+PRODUCTION-STATUS.md
+RATE-LIMIT-FIXED.md
+ROUTE-DIAGNOSIS.md
+SYSTEM-URLS.md
+USERS-ISSUE-FIXED.md
+
+# Test files (keep in repo but they're temporary)
+backend/test-*.js
+setup-*.sh
+test-*.sh

@@ -234,6 +234,18 @@ router.get('/daily/:date?', requireAdmin, async (req, res) => {
             });
         }
 
+        // Log report generation
+        await executeQuery(
+            'INSERT INTO report_generations (report_type, report_date, generated_by, parameters) VALUES (?, ?, ?, ?)',
+            ['daily_attendance', date, req.user.id, JSON.stringify({ date, requestedBy: req.user.email })]
+        );
+
+        // Get total generation count for this report type
+        const countResult = await executeQuery(
+            'SELECT COUNT(*) as total_generations FROM report_generations WHERE report_type = ?',
+            ['daily_attendance']
+        );
+
         const query = `
             SELECT 
                 u.id,
@@ -277,6 +289,11 @@ router.get('/daily/:date?', requireAdmin, async (req, res) => {
             success: true,
             date: date,
             summary: summary,
+            reportGeneration: {
+                totalGenerations: countResult[0].total_generations,
+                generatedAt: new Date().toISOString(),
+                generatedBy: req.user.email
+            },
             employees: records.map(record => ({
                 userId: record.id,
                 employeeId: record.employee_id,

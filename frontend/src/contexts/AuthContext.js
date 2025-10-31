@@ -146,6 +146,8 @@ export const AuthProvider = ({ children }) => {
     } finally {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      // Clear saved credentials on logout (optional - user choice)
+      // localStorage.removeItem('savedCredentials'); // Uncomment if you want to clear on logout
       dispatch({ type: 'LOGOUT' });
     }
   };

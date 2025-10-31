@@ -3,6 +3,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { attendanceAPI } from '../services/api';
 import { toast } from 'react-hot-toast';
 import moment from 'moment';
+import Header from './Header';
+import AttendanceProgressClock from './AttendanceProgressClock';
+import LiveProgressTracker from './LiveProgressTracker';
 import { 
   Clock, 
   Play, 
@@ -11,7 +14,9 @@ import {
   Coffee, 
   CheckCircle,
   AlertCircle,
-  Timer
+  Timer,
+  Sparkles,
+  TrendingUp
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -131,18 +136,27 @@ const Dashboard = () => {
 
   if (loading && !attendanceStatus) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary-600"></div>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--gradient-background)' }}>
+        <div className="modern-card p-8">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2" style={{ borderColor: 'var(--primary-500)' }}></div>
+            <div className="text-gray-600 font-medium">Loading your dashboard...</div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
+    <div className="min-h-screen" style={{ background: 'var(--gradient-background)' }}>
+      {/* Header with logout */}
+      <Header />
+      
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Welcome Section */}
+        <div className="mb-8 flex items-center justify-between">
+          <div>
             <h1 className="text-3xl font-bold text-gray-900">
               Welcome back, {user?.firstName}!
             </h1>
@@ -150,10 +164,22 @@ const Dashboard = () => {
               {moment().format('dddd, MMMM Do YYYY')}
             </p>
           </div>
+          
+          {/* Admin Quick Access */}
+          {user?.isAdmin && (
+            <div className="flex items-center space-x-3">
+              <a
+                href="/admin"
+                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transform hover:scale-105 transition-all duration-200"
+              >
+                <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 2.676-.732 5.162-2.168 7.162-4.122 1.245-1.22 2.24-2.618 2.938-4.162A11.955 11.955 0 0021 9a12.02 12.02 0 00-.382-5.016z" />
+                </svg>
+                Admin Panel
+              </a>
+            </div>
+          )}
         </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Current Time */}
         <div className="text-center mb-8">
           <div className="text-6xl font-mono font-bold text-gray-900">
@@ -166,10 +192,21 @@ const Dashboard = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Attendance Controls */}
-          <div className="lg:col-span-2">
-            <div className="card p-6">
+          <div className="lg:col-span-2 space-y-6">
+            {/* Live Progress Tracker */}
+            <LiveProgressTracker userId={user?.id} />
+            
+            {/* Progress Clock */}
+            <AttendanceProgressClock attendanceStatus={attendanceStatus} />
+            
+            {/* Attendance Controls */}
+            <div>
+            <div className="modern-card p-6 animate-fade-in">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">Attendance</h2>
+                <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+                  <Sparkles className="h-6 w-6 mr-2 text-primary-500" />
+                  Attendance Controls
+                </h2>
                 {getStatusBadge()}
               </div>
 
@@ -178,7 +215,8 @@ const Dashboard = () => {
                 <button
                   onClick={handleClockIn}
                   disabled={loading || attendanceStatus?.isClockedIn}
-                  className="flex items-center justify-center px-6 py-4 bg-success-600 hover:bg-success-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed py-4"
+                  style={{ background: attendanceStatus?.isClockedIn ? 'var(--gray-300)' : 'var(--gradient-accent)' }}
                 >
                   <Play className="h-5 w-5 mr-2" />
                   Clock In
@@ -187,7 +225,8 @@ const Dashboard = () => {
                 <button
                   onClick={handleClockOut}
                   disabled={loading || !attendanceStatus?.isClockedIn || attendanceStatus?.checkOutTime}
-                  className="flex items-center justify-center px-6 py-4 bg-danger-600 hover:bg-danger-700 disabled:bg-gray-300 text-white rounded-lg transition-colors"
+                  className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed py-4"
+                  style={{ background: (!attendanceStatus?.isClockedIn || attendanceStatus?.checkOutTime) ? 'var(--gray-300)' : 'linear-gradient(135deg, var(--error-500) 0%, var(--error-600) 100%)' }}
                 >
                   <Square className="h-5 w-5 mr-2" />
                   Clock Out
@@ -288,6 +327,7 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

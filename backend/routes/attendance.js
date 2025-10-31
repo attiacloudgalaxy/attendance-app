@@ -550,4 +550,137 @@ router.get('/today/all', requireAdmin, async (req, res) => {
     }
 });
 
+// Manual attendance logging (Admin only)
+router.post('/manual', [
+    requireAdmin,
+    body('userId').isInt(),
+    body('date').isDate(),
+    body('checkInTime').isLength({ min: 1 }),
+    body('checkOutTime').optional(),
+    body('breakStartTime').optional(),
+    body('breakEndTime').optional(),
+    body('status').isIn(['present', 'absent', 'partial', 'late']),
+    body('notes').optional().isLength({ max: 1000 })
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const {
+            userId,
+            date,
+            checkInTime,
+            checkOutTime,
+            breakStartTime,
+            breakEndTime,
+            status,
+            notes
+        } = req.body;
+
+        // Check if user exists
+        const users = await executeQuery('SELECT * FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Check if attendance record already exists for this date
+        const existingRecords = await executeQuery(
+            'SELECT * FROM attendance_records WHERE user_id = ? AND date = ?',
+            [userId, date]
+        );
+
+        if (existingRecords.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Attendance record already exists for this date'
+            });
+        }
+
+        // Calculate total hours and break duration
+        let totalHours = 0;
+        let breakDuration = 0;
+        let overtimeHours = 0;
+
+        if (checkInTime && checkOutTime) {
+            const checkInMoment = moment(`${date} ${checkInTime}`);
+            const checkOutMoment = moment(`${date} ${checkOutTime}`);
+            
+            // Calculate break duration if break times are provided
+            if (breakStartTime && breakEndTime) {
+                const breakStartMoment = moment(`${date} ${breakStartTime}`);
+                const breakEndMoment = moment(`${date} ${breakEndTime}`);
+                breakDuration = breakEndMoment.diff(breakStartMoment, 'minutes') / 60;
+            }
+            
+            const totalMinutes = checkOutMoment.diff(checkInMoment, 'minutes') - (breakDuration * 60);
+            totalHours = Math.max(0, totalMinutes / 60);
+            
+            // Calculate overtime (assuming 8 hours is standard)
+            overtimeHours = Math.max(0, totalHours - 8);
+        }
+
+        // Insert the manual attendance record
+        const result = await executeQuery(
+            `INSERT INTO attendance_records 
+             (user_id, date, check_in_time, check_out_time, break_start_time, break_end_time, 
+              total_hours, break_duration, overtime_hours, status, notes, created_at, updated_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+                userId,
+                date,
+                checkInTime,
+                checkOutTime || null,
+                breakStartTime || null,
+                breakEndTime || null,
+                totalHours.toFixed(2),
+                breakDuration.toFixed(2),
+                overtimeHours.toFixed(2),
+                status,
+                `${notes || ''}\n[Manual entry by admin: ${req.user.firstName} ${req.user.lastName}]`
+            ]
+        );
+
+        // Get the created record
+        const newRecord = await executeQuery(
+            'SELECT * FROM attendance_records WHERE id = ?',
+            [result.insertId]
+        );
+
+        res.json({
+            success: true,
+            message: 'Manual attendance record created successfully',
+            record: {
+                id: newRecord[0].id,
+                userId: newRecord[0].user_id,
+                date: newRecord[0].date,
+                checkInTime: newRecord[0].check_in_time,
+                checkOutTime: newRecord[0].check_out_time,
+                breakStartTime: newRecord[0].break_start_time,
+                breakEndTime: newRecord[0].break_end_time,
+                totalHours: parseFloat(newRecord[0].total_hours),
+                breakDuration: parseFloat(newRecord[0].break_duration),
+                overtimeHours: parseFloat(newRecord[0].overtime_hours),
+                status: newRecord[0].status,
+                notes: newRecord[0].notes
+            }
+        });
+
+    } catch (error) {
+        console.error('Manual attendance logging error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error'
+        });
+    }
+});
+
 module.exports = router;
