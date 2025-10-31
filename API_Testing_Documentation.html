@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Testing Documentation - Attendance Management System</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 40px;
+            margin: 20px 0;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 3px solid #0ea5e9;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            color: #0ea5e9;
+            font-size: 2.5em;
+            margin: 0;
+        }
+        .subtitle {
+            color: #6b7280;
+            font-size: 1.2em;
+            margin: 10px 0 0 0;
+        }
+        h2 {
+            color: #1f2937;
+            border-left: 4px solid #0ea5e9;
+            padding-left: 15px;
+            margin-top: 40px;
+        }
+        h3 {
+            color: #374151;
+            margin-top: 30px;
+        }
+        .toc {
+            background: #f3f4f6;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .toc ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .toc a {
+            color: #0ea5e9;
+            text-decoration: none;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .code-block {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .inline-code {
+            background: #e5e7eb;
+            color: #374151;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9em;
+        }
+        .endpoint {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .endpoint-title {
+            font-weight: bold;
+            color: #92400e;
+            margin-bottom: 10px;
+        }
+        .method-post {
+            background: #10b981;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .method-get {
+            background: #3b82f6;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        .response-example {
+            background: #ecfdf5;
+            border: 1px solid #10b981;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .response-title {
+            color: #065f46;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+        }
+        th, td {
+            border: 1px solid #d1d5db;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #f3f4f6;
+            font-weight: bold;
+            color: #374151;
+        }
+        .status-200 { color: #10b981; font-weight: bold; }
+        .status-400 { color: #f59e0b; font-weight: bold; }
+        .status-500 { color: #ef4444; font-weight: bold; }
+        .note {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .success {
+            background: #ecfdf5;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .footer {
+            text-align: center;
+            padding-top: 30px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-style: italic;
+        }
+        .emoji {
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>API Testing Documentation</h1>
+            <p class="subtitle">Attendance Management System</p>
+        </div>
+
+        <p>This document contains all the curl commands used during the development and testing of the Attendance Management System. These commands demonstrate how to interact with the API endpoints and can be used for testing, integration, and debugging purposes.</p>
+
+        <div class="toc">
+            <h3>Table of Contents</h3>
+            <ul>
+                <li><a href="#authentication-endpoints">Authentication Endpoints</a></li>
+                <li><a href="#health-check-endpoints">Health Check Endpoints</a></li>
+                <li><a href="#testing-notes">Testing Notes</a></li>
+                <li><a href="#common-response-codes">Common Response Codes</a></li>
+                <li><a href="#troubleshooting">Troubleshooting</a></li>
+            </ul>
+        </div>
+
+        <h2 id="authentication-endpoints"><span class="emoji">🔐</span> Authentication Endpoints</h2>
+
+        <h3>1. User Login (Initiates 2FA Process)</h3>
+        
+        <div class="endpoint">
+            <div class="endpoint-title">
+                <span class="method-post">POST</span> /api/auth/login
+            </div>
+            <p><strong>Purpose:</strong> Authenticates user credentials and initiates the two-factor authentication process</p>
+        </div>
+
+        <div class="code-block">curl -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@company.com","password":"admin123"}'</div>
+
+        <p><strong>Request Details:</strong></p>
+        <ul>
+            <li><strong>Method:</strong> POST</li>
+            <li><strong>Endpoint:</strong> <span class="inline-code">/api/auth/login</span></li>
+            <li><strong>Headers:</strong> Content-Type: application/json</li>
+            <li><strong>Body:</strong> JSON object containing email and password</li>
+        </ul>
+
+        <div class="response-example">
+            <div class="response-title">Expected Response:</div>
+            <div class="code-block">{
+  "message": "2FA token sent to email",
+  "userId": 1,
+  "requiresVerification": true
+}</div>
+        </div>
+
+        <div class="note">
+            <h4><span class="emoji">👥</span> Test Credentials:</h4>
+            <ul>
+                <li><strong>Admin User:</strong> admin@company.com / admin123</li>
+                <li><strong>Regular Users:</strong>
+                    <ul>
+                        <li>basim@company.com / basim123</li>
+                        <li>sara@company.com / sara123</li>
+                        <li>ahmed@company.com / ahmed123</li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+
+        <h3>2. 2FA Token Verification</h3>
+
+        <div class="endpoint">
+            <div class="endpoint-title">
+                <span class="method-post">POST</span> /api/auth/verify-2fa
+            </div>
+            <p><strong>Purpose:</strong> Verifies the 2FA token sent to user's email and completes authentication</p>
+        </div>
+
+        <div class="code-block">curl -X POST http://localhost:3001/api/auth/verify-2fa \
+  -H "Content-Type: application/json" \
+  -d '{"userId":1,"token":"217427"}' \
+  -s</div>
+
+        <p><strong>Request Details:</strong></p>
+        <ul>
+            <li><strong>Method:</strong> POST</li>
+            <li><strong>Endpoint:</strong> <span class="inline-code">/api/auth/verify-2fa</span></li>
+            <li><strong>Headers:</strong> Content-Type: application/json</li>
+            <li><strong>Body:</strong> JSON object containing userId and 6-digit token</li>
+            <li><strong>Flags:</strong> <span class="inline-code">-s</span> for silent mode</li>
+        </ul>
+
+        <div class="response-example">
+            <div class="response-title">Expected Response:</div>
+            <div class="code-block">{
+  "message": "Login successful",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "admin@company.com",
+    "name": "Admin User",
+    "role": "admin"
+  }
+}</div>
+        </div>
+
+        <div class="warning">
+            <h4><span class="emoji">⚠️</span> Important Notes:</h4>
+            <ul>
+                <li>Token is a 6-digit number sent via email</li>
+                <li>Token expires after 5-10 minutes</li>
+                <li>userId must match the user who requested login</li>
+            </ul>
+        </div>
+
+        <h2 id="health-check-endpoints"><span class="emoji">🩺</span> Health Check Endpoints</h2>
+
+        <h3>3. Frontend Application Health Check</h3>
+
+        <div class="endpoint">
+            <div class="endpoint-title">
+                <span class="method-get">GET</span> / (Root Path)
+            </div>
+            <p><strong>Purpose:</strong> Checks if the React frontend application is running and responsive</p>
+        </div>
+
+        <div class="code-block">curl -s -o /dev/null -w "%{http_code}" http://localhost:3111 || echo "Frontend not responding"</div>
+
+        <p><strong>Request Details:</strong></p>
+        <ul>
+            <li><strong>Method:</strong> GET (default)</li>
+            <li><strong>Endpoint:</strong> <span class="inline-code">http://localhost:3111</span></li>
+            <li><strong>Flags:</strong>
+                <ul>
+                    <li><span class="inline-code">-s</span> for silent mode</li>
+                    <li><span class="inline-code">-o /dev/null</span> to discard response body</li>
+                    <li><span class="inline-code">-w "%{http_code}"</span> to output only HTTP status code</li>
+                </ul>
+            </li>
+            <li><strong>Fallback:</strong> Displays "Frontend not responding" if curl fails</li>
+        </ul>
+
+        <div class="success">
+            <h4><span class="emoji">✅</span> Expected Responses:</h4>
+            <ul>
+                <li><span class="status-200">200</span> - Frontend is running correctly</li>
+                <li><strong>Connection refused</strong> - Frontend is not running</li>
+                <li><strong>Other codes</strong> - Various issues (404, 500, etc.)</li>
+            </ul>
+        </div>
+
+        <h2 id="testing-notes"><span class="emoji">🧪</span> Testing Notes</h2>
+
+        <h3>Development Environment Setup</h3>
+        <ul>
+            <li><strong>Backend URL:</strong> http://localhost:3001</li>
+            <li><strong>Frontend URL:</strong> http://localhost:3111</li>
+            <li><strong>Database:</strong> MySQL running locally</li>
+            <li><strong>Email Service:</strong> Configured for 2FA token delivery</li>
+        </ul>
+
+        <h3>Authentication Flow Testing</h3>
+        <ol>
+            <li><strong>Step 1:</strong> Use login endpoint to initiate authentication</li>
+            <li><strong>Step 2:</strong> Check email for 6-digit 2FA token</li>
+            <li><strong>Step 3:</strong> Use verify-2fa endpoint with received token</li>
+            <li><strong>Step 4:</strong> Use returned JWT token in Authorization header</li>
+        </ol>
+
+        <h3>Protected Endpoint Usage</h3>
+        <p>For endpoints requiring authentication, include the JWT token:</p>
+        <div class="code-block">curl -X GET http://localhost:3001/api/protected-endpoint \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN_HERE" \
+  -H "Content-Type: application/json"</div>
+
+        <h2 id="common-response-codes"><span class="emoji">📊</span> Common Response Codes</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Meaning</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="status-200">200</td>
+                    <td>OK</td>
+                    <td>Request successful</td>
+                </tr>
+                <tr>
+                    <td class="status-200">201</td>
+                    <td>Created</td>
+                    <td>Resource created successfully</td>
+                </tr>
+                <tr>
+                    <td class="status-400">400</td>
+                    <td>Bad Request</td>
+                    <td>Invalid request data</td>
+                </tr>
+                <tr>
+                    <td class="status-400">401</td>
+                    <td>Unauthorized</td>
+                    <td>Authentication required or failed</td>
+                </tr>
+                <tr>
+                    <td class="status-400">403</td>
+                    <td>Forbidden</td>
+                    <td>Insufficient permissions</td>
+                </tr>
+                <tr>
+                    <td class="status-400">404</td>
+                    <td>Not Found</td>
+                    <td>Resource not found</td>
+                </tr>
+                <tr>
+                    <td class="status-400">429</td>
+                    <td>Too Many Requests</td>
+                    <td>Rate limit exceeded</td>
+                </tr>
+                <tr>
+                    <td class="status-500">500</td>
+                    <td>Internal Server Error</td>
+                    <td>Server error occurred</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2><span class="emoji">🛡️</span> Security Considerations</h2>
+
+        <ol>
+            <li><strong>HTTPS in Production:</strong> Always use HTTPS in production environments</li>
+            <li><strong>JWT Token Security:</strong> Store JWT tokens securely (avoid localStorage in production)</li>
+            <li><strong>2FA Tokens:</strong> 6-digit tokens are time-sensitive and single-use</li>
+            <li><strong>Rate Limiting:</strong> Be mindful of rate limits during automated testing</li>
+            <li><strong>CORS:</strong> Frontend and backend must be configured for cross-origin requests</li>
+        </ol>
+
+        <h2><span class="emoji">📡</span> Additional API Endpoints</h2>
+
+        <p>While not shown in the curl history, the system includes these additional endpoints:</p>
+
+        <h3>Attendance Management</h3>
+        <ul>
+            <li><span class="inline-code">GET /api/attendance/records</span> - Get user attendance records</li>
+            <li><span class="inline-code">POST /api/attendance/clock-in</span> - Clock in</li>
+            <li><span class="inline-code">POST /api/attendance/clock-out</span> - Clock out</li>
+            <li><span class="inline-code">GET /api/attendance/status</span> - Get current attendance status</li>
+            <li><span class="inline-code">GET /api/attendance/progress</span> - Get live progress data</li>
+        </ul>
+
+        <h3>Admin Endpoints</h3>
+        <ul>
+            <li><span class="inline-code">GET /api/users</span> - List all users (Admin only)</li>
+            <li><span class="inline-code">POST /api/attendance/manual</span> - Manual attendance logging (Admin only)</li>
+            <li><span class="inline-code">GET /api/reports/daily</span> - Generate attendance reports (Admin only)</li>
+        </ul>
+
+        <h2 id="troubleshooting"><span class="emoji">🔧</span> Troubleshooting</h2>
+
+        <h3>Common Issues and Solutions</h3>
+
+        <div class="warning">
+            <h4>1. Connection Refused</h4>
+            <div class="code-block">curl: (7) Failed to connect to localhost port 3001: Connection refused</div>
+            <p><strong>Solution:</strong> Start the backend server with <span class="inline-code">npm start</span></p>
+        </div>
+
+        <div class="warning">
+            <h4>2. CORS Issues</h4>
+            <div class="code-block">Access to fetch at 'http://localhost:3001/api/...' from origin 'http://localhost:3111' has been blocked by CORS policy</div>
+            <p><strong>Solution:</strong> Ensure CORS is properly configured in backend</p>
+        </div>
+
+        <div class="warning">
+            <h4>3. Invalid 2FA Token</h4>
+            <div class="code-block">{"error": "Invalid or expired token"}</div>
+            <p><strong>Solution:</strong> Check email for new token, ensure token is entered correctly</p>
+        </div>
+
+        <div class="warning">
+            <h4>4. Rate Limit Exceeded</h4>
+            <div class="code-block">{"error": "Too many requests, please try again later"}</div>
+            <p><strong>Solution:</strong> Wait for rate limit window to reset (15 minutes)</p>
+        </div>
+
+        <h2><span class="emoji">📝</span> Testing Script Example</h2>
+
+        <div class="code-block">#!/bin/bash
+# Quick API test script
+
+echo "Testing login..."
+LOGIN_RESPONSE=$(curl -s -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@company.com","password":"admin123"}')
+
+echo "Login Response: $LOGIN_RESPONSE"
+
+echo "Testing frontend health..."
+FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3111)
+
+echo "Frontend Status: $FRONTEND_STATUS"
+
+if [ "$FRONTEND_STATUS" = "200" ]; then
+  echo "✅ Frontend is running"
+else
+  echo "❌ Frontend is not responding"
+fi</div>
+
+        <div class="footer">
+            <p><em>This documentation was generated from actual curl commands used during development and testing of the Attendance Management System.</em></p>
+            <p><strong>Generated on:</strong> November 1, 2025</p>
+        </div>
+    </div>
+</body>
+</html>
