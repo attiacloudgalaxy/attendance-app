@@ -1,209 +1,391 @@
 #!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+umask 027
 
 # =============================================================================
-# Attendance Management System - Complete Installation Script
+# Attendance Management System - Hardened One-Touch Installer
 # =============================================================================
-# This script installs all prerequisites and sets up the entire system
-# Works on: GitHub Codespaces, Ubuntu, macOS, and other Unix-like systems
+# • Supports Ubuntu/Debian, RHEL/CentOS/Fedora, openSUSE, Arch, macOS, Codespaces
+# • Installs Node.js, MySQL/MariaDB, project dependencies, startup helpers
+# • Generates strong credentials and writes a post-installation summary
+# • Safe defaults, minimal prompts (fully automated with --non-interactive)
 # =============================================================================
 
-set -e  # Exit on any error
-
-# Colors for output
+# ----- Styling ----------------------------------------------------------------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
+BOLD='\033[1m'
+DIM='\033[2m'
 
-# Configuration
-PROJECT_NAME="attendance-management-system"
+say_step() { printf "${BLUE}==> %s${NC}\n" "$1"; }
+say_info() { printf "${CYAN}ℹ %s${NC}\n" "$1"; }
+say_warn() { printf "${YELLOW}⚠ %s${NC}\n" "$1"; }
+say_err() { printf "${RED}✖ %s${NC}\n" "$1" >&2; }
+say_ok()   { printf "${GREEN}✔ %s${NC}\n" "$1"; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [options]
+
+Options:
+  --non-interactive, -y   Run without prompts (requires all credentials)
+  --skip-email            Skip SMTP configuration for MFA/reset emails
+  --skip-systemd          Do not create systemd units
+  --use-current           Provision into the current directory
+  --force-reinstall       Remove existing project directory before cloning
+  --project-dir <dir>     Target directory name (default: attendance-app)
+  --repo-url <url>        Git repository to clone
+  --backend-port <port>   Backend service port (default: 3001)
+  --frontend-port <port>  Frontend dev server port (default: 3111)
+  --db-name <name>        Database schema name
+  --app-db-user <user>    Application database user
+  --app-db-password <pw>  Application database password
+  --db-root-password <pw> Root password to apply (disables socket auth)
+  --keep-root-password    Preserve the existing database root password
+  --node-version <major>  Desired Node.js major version (default: 20)
+  -h, --help              Show this help message
+EOF
+}
+
+cmd_exists() { command -v "$1" >/dev/null 2>&1; }
+
+ensure_cmd() {
+    local cmd="$1"; shift
+    cmd_exists "$cmd" && return
+    [[ $# -gt 0 ]] && say_err "$1"
+    exit 1
+}
+
+prompt() {
+    local msg="$1"; local def="${2-}"; local reply
+    read -r -p "$msg${def:+ [$def]}: " reply || true
+    echo "${reply:-$def}"
+}
+
+prompt_secret() {
+    local msg="$1"; local def="${2-}"; local reply
+    read -r -s -p "$msg${def:+ [$def]}: " reply || true
+    echo
+    echo "${reply:-$def}"
+}
+
+rand_password() {
+    local length="${1:-32}"
+    if cmd_exists openssl; then
+        openssl rand -base64 $((length * 2)) | tr -dc 'A-Za-z0-9!@#%+=' | head -c "$length"
+    else
+        tr -dc 'A-Za-z0-9!@#%+=' < /dev/urandom | head -c "$length"
+    fi
+}
+
+banner() {
+    printf "${BLUE}╔══════════════════════════════════════════════════════════════════╗${NC}\n"
+    printf "${BLUE}║  ${BOLD}${CYAN}Attendance Management System - Hardened Installer${NC}${BLUE}  ║${NC}\n"
+    printf "${BLUE}║        ${CYAN}Cross-platform provisioning with secure defaults${NC}${BLUE}       ║${NC}\n"
+    printf "${BLUE}╚══════════════════════════════════════════════════════════════════╝${NC}\n\n"
+}
+
+declare -A REPORT
+set_report() { REPORT["$1"]="$2"; }
+summary_line() { printf '   %-24s %s\n' "$1" "$2"; }
+
+# ----- Defaults ----------------------------------------------------------------
+DEFAULT_REPO="https://github.com/attiacloudgalaxy/attendance-app.git"
+PROJECT_DIR="attendance-app"
+REPO_URL="$DEFAULT_REPO"
+BACKEND_PORT="3001"
+FRONTEND_PORT="3111"
 DB_NAME="attendance_system"
-DB_USER="root"
-DB_PASSWORD="attendance123"
-BACKEND_PORT=3001
-FRONTEND_PORT=3111
-NODE_VERSION="18"
+APP_DB_USER="attendance_app"
+APP_DB_PASSWORD=""
+DB_ROOT_PASSWORD=""
+NODE_MAJOR="20"
+KEEP_ROOT_PASSWORD=false
+NON_INTERACTIVE=false
+SKIP_EMAIL=false
+SKIP_SYSTEMD=false
+USE_CURRENT=false
+FORCE_REINSTALL=false
 
-# Email configuration (will be set interactively)
 EMAIL_HOST=""
 EMAIL_PORT="587"
 EMAIL_USER=""
 EMAIL_PASS=""
+SUMMARY_FILE="install-summary.txt"
 
-# =============================================================================
-# Utility Functions
-# =============================================================================
+OS=unknown
+DISTRO=unknown
+PKG_MANAGER=unknown
+PKG_INSTALL=""
+PKG_UPDATE=""
+SUDO=""
 
-print_banner() {
-    echo -e "${CYAN}"
-    echo "╔══════════════════════════════════════════════════════════════════╗"
-    echo "║              ATTENDANCE MANAGEMENT SYSTEM INSTALLER              ║"
-    echo "║                     One-Click Setup Script                      ║"
-    echo "╚══════════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+ROOT_AUTH_SOCKET=true
+DB_SERVICE=""
+MYSQL_CLIENT="mysql"
+
+# ----- Argument parsing --------------------------------------------------------
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --non-interactive|-y) NON_INTERACTIVE=true ;;
+            --skip-email)         SKIP_EMAIL=true ;;
+            --skip-systemd)       SKIP_SYSTEMD=true ;;
+            --use-current)        USE_CURRENT=true ;;
+            --force-reinstall)    FORCE_REINSTALL=true ;;
+            --project-dir)        PROJECT_DIR="$2"; shift ;;
+            --repo-url)           REPO_URL="$2"; shift ;;
+            --backend-port)       BACKEND_PORT="$2"; shift ;;
+            --frontend-port)      FRONTEND_PORT="$2"; shift ;;
+            --db-name)            DB_NAME="$2"; shift ;;
+            --app-db-user)        APP_DB_USER="$2"; shift ;;
+            --app-db-password)    APP_DB_PASSWORD="$2"; shift ;;
+            --db-root-password)   DB_ROOT_PASSWORD="$2"; KEEP_ROOT_PASSWORD=false; shift ;;
+            --keep-root-password) KEEP_ROOT_PASSWORD=true ;;
+            --node-version)       NODE_MAJOR="$2"; shift ;;
+            -h|--help)            usage; exit 0 ;;
+            *) say_err "Unknown option: $1"; usage; exit 1 ;;
+        esac
+        shift
+    done
 }
 
-print_step() {
-    echo -e "\n${BLUE}🔧 $1${NC}"
-}
-
-print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}❌ $1${NC}"
-}
-
-print_info() {
-    echo -e "${MAGENTA}ℹ️  $1${NC}"
-}
-
-check_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        OS="linux"
-        if command -v apt-get >/dev/null 2>&1; then
-            DISTRO="ubuntu"
-        elif command -v yum >/dev/null 2>&1; then
-            DISTRO="centos"
-        else
-            DISTRO="unknown"
-        fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        OS="macos"
-        DISTRO="macos"
+# ----- Platform detection ------------------------------------------------------
+prepare_privileges() {
+    if cmd_exists sudo && [[ $EUID -ne 0 ]]; then
+        SUDO="sudo"
     else
-        OS="unknown"
-        DISTRO="unknown"
+        SUDO=""
     fi
-    
-    print_info "Detected OS: $OS ($DISTRO)"
 }
 
-wait_for_user() {
-    echo -e "\n${YELLOW}Press Enter to continue...${NC}"
-    read -r
+detect_platform() {
+    case "$OSTYPE" in
+        linux-gnu*)
+            OS="linux"
+            if [[ -f /etc/os-release ]]; then
+                . /etc/os-release
+                DISTRO="${ID_LIKE:-${ID:-linux}}"
+            fi
+            ;;
+        darwin*)
+            OS="macos"; DISTRO="macos" ;;
+        msys*|cygwin*|win32*)
+            say_err "Native Windows shells are unsupported. Please use WSL2 or a POSIX environment."; exit 1 ;;
+        *)
+            say_warn "Unrecognised platform ($OSTYPE). Attempting best-effort install."; OS="linux"; DISTRO="linux" ;;
+    esac
+    say_info "Platform detected: ${OS^} (${DISTRO})"
 }
 
-# =============================================================================
-# Installation Functions
-# =============================================================================
-
-install_system_packages() {
-    print_step "Installing system packages..."
-    
-    if [[ "$DISTRO" == "ubuntu" ]]; then
-        sudo apt-get update
-        sudo apt-get install -y \
-            curl \
-            wget \
-            git \
-            build-essential \
-            software-properties-common \
-            apt-transport-https \
-            ca-certificates \
-            gnupg \
-            lsb-release \
-            unzip \
-            vim \
-            htop \
-            net-tools
-            
-    elif [[ "$DISTRO" == "macos" ]]; then
-        # Install Homebrew if not present
-        if ! command -v brew >/dev/null 2>&1; then
-            print_step "Installing Homebrew..."
+select_pkg_manager() {
+    if [[ "$OS" == "macos" ]]; then
+        if ! cmd_exists brew; then
+            say_step "Installing Homebrew..."
             /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-            eval "$(/opt/homebrew/bin/brew shellenv)"
+            eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
         fi
-        
-        brew update
-        brew install curl wget git
+        PKG_MANAGER="brew"
+        PKG_INSTALL="brew install"
+        PKG_UPDATE="brew update"
+        return
     fi
-    
-    print_success "System packages installed"
+
+    if   cmd_exists apt-get; then PKG_MANAGER="apt";   PKG_INSTALL="$SUDO apt-get install -y"; PKG_UPDATE="$SUDO apt-get update";
+    elif cmd_exists dnf; then     PKG_MANAGER="dnf";   PKG_INSTALL="$SUDO dnf install -y";     PKG_UPDATE="$SUDO dnf -y makecache";
+    elif cmd_exists yum; then     PKG_MANAGER="yum";   PKG_INSTALL="$SUDO yum install -y";     PKG_UPDATE="$SUDO yum makecache -y";
+    elif cmd_exists zypper; then  PKG_MANAGER="zypper";PKG_INSTALL="$SUDO zypper install -y"; PKG_UPDATE="$SUDO zypper refresh";
+    elif cmd_exists pacman; then  PKG_MANAGER="pacman";PKG_INSTALL="$SUDO pacman -S --noconfirm --needed"; PKG_UPDATE="$SUDO pacman -Sy --noconfirm";
+    else
+        say_err "Unsupported distribution. Install dependencies manually then rerun with --use-current."; exit 1
+    fi
+    say_info "Package manager: $PKG_MANAGER"
 }
 
-install_nodejs() {
-    print_step "Installing Node.js $NODE_VERSION..."
-    
-    # Install Node.js using NodeSource repository (Linux) or Homebrew (macOS)
-    if [[ "$DISTRO" == "ubuntu" ]]; then
-        curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-        
-    elif [[ "$DISTRO" == "macos" ]]; then
-        brew install node@${NODE_VERSION}
-        brew link node@${NODE_VERSION}
-    fi
-    
-    # Verify installation
-    node_version=$(node --version)
-    npm_version=$(npm --version)
-    print_success "Node.js installed: $node_version, npm: $npm_version"
+update_packages() { [[ -n "$PKG_UPDATE" ]] && say_step "Refreshing package index" && eval "$PKG_UPDATE"; }
+
+install_prereqs() {
+    say_step "Installing foundational packages"
+    case "$PKG_MANAGER" in
+        apt)
+            eval "$PKG_INSTALL curl wget git build-essential ca-certificates gnupg lsb-release unzip jq" ;;
+        dnf|yum)
+            eval "$PKG_INSTALL curl wget git gcc gcc-c++ make openssl openssl-devel unzip jq" ;;
+        zypper)
+            eval "$PKG_INSTALL curl wget git gcc gcc-c++ make libopenssl-devel unzip jq" ;;
+        pacman)
+            eval "$PKG_INSTALL base-devel curl wget git openssl unzip jq" ;;
+        brew)
+            brew install curl wget git coreutils gnu-sed jq >/dev/null 2>&1 || true ;;
+    esac
+    ensure_cmd curl "Install curl and rerun."
+    ensure_cmd git  "Install git and rerun."
 }
 
+# ----- Node.js -----------------------------------------------------------------
+install_node() {
+    say_step "Ensuring Node.js v${NODE_MAJOR}.x"
+    if cmd_exists node; then
+        local CURRENT="$(node -v || echo "")"
+        [[ "$CURRENT" == v${NODE_MAJOR}.* ]] && { say_info "Node.js $CURRENT already installed"; return; }
+    fi
+
+    if [[ "$PKG_MANAGER" == "brew" ]]; then
+        brew install "node@${NODE_MAJOR}" >/dev/null 2>&1 || true
+        brew link --overwrite --force "node@${NODE_MAJOR}" >/dev/null 2>&1 || true
+    else
+        case "$PKG_MANAGER" in
+            apt)   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO -E bash - && eval "$PKG_INSTALL nodejs" ;;
+            dnf|yum|zypper)
+                   curl -fsSL "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO bash - && eval "$PKG_INSTALL nodejs" ;;
+            pacman) eval "$PKG_INSTALL nodejs npm" ;;
+        esac
+    fi
+
+    if ! cmd_exists node; then
+        say_warn "Falling back to nvm for Node.js"
+        export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+        [[ -s "$NVM_DIR/nvm.sh" ]] || curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+        # shellcheck disable=SC1090
+        . "$NVM_DIR/nvm.sh"
+        nvm install "$NODE_MAJOR"
+        nvm alias default "$NODE_MAJOR" >/dev/null
+        nvm use "$NODE_MAJOR" >/dev/null
+    fi
+
+    say_ok "Node.js $(node -v) • npm $(npm -v)"
+}
+
+# ----- MySQL / MariaDB ---------------------------------------------------------
 install_mysql() {
-    print_step "Installing MySQL..."
-    
-    if [[ "$DISTRO" == "ubuntu" ]]; then
-        # Install MySQL Server
-        sudo apt-get install -y mysql-server mysql-client
-        
-        # Start MySQL service
-        sudo systemctl start mysql
-        sudo systemctl enable mysql
-        
-        # Secure MySQL installation (automated)
-        sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$DB_PASSWORD';"
-        sudo mysql -u root -p$DB_PASSWORD -e "DELETE FROM mysql.user WHERE User='';"
-        sudo mysql -u root -p$DB_PASSWORD -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');"
-        sudo mysql -u root -p$DB_PASSWORD -e "DROP DATABASE IF EXISTS test;"
-        sudo mysql -u root -p$DB_PASSWORD -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';"
-        sudo mysql -u root -p$DB_PASSWORD -e "FLUSH PRIVILEGES;"
-        
-    elif [[ "$DISTRO" == "macos" ]]; then
-        brew install mysql
-        
-        # Start MySQL service
-        brew services start mysql
-        
-        # Set root password
-        mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_PASSWORD';" 2>/dev/null || true
+    if cmd_exists mysql && cmd_exists mysqld; then
+        say_info "MySQL/MariaDB already present"
+        return
     fi
-    
-    print_success "MySQL installed and configured"
+
+    say_step "Installing MySQL / MariaDB server"
+    case "$PKG_MANAGER" in
+        apt)
+            eval "$PKG_INSTALL mysql-server mysql-client" ;;
+        dnf|yum)
+            eval "$PKG_INSTALL mariadb-server mariadb" ;;
+        zypper)
+            eval "$PKG_INSTALL mariadb mariadb-client" ;;
+        pacman)
+            eval "$PKG_INSTALL mariadb mariadb-clients" ;;
+        brew)
+            brew install mysql >/dev/null 2>&1 || true ;;
+    esac
 }
 
-setup_database() {
-    print_step "Setting up database..."
-    
-    # Create database
-    mysql -u $DB_USER -p$DB_PASSWORD -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    
-    # Create database schema
-    mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME << 'EOF'
--- Users table
+start_mysql_service() {
+    say_step "Starting database service"
+    if [[ "$OS" == "macos" ]]; then
+        brew services start mysql >/dev/null 2>&1 || true
+        DB_SERVICE="mysql"
+        return
+    fi
+
+    if cmd_exists systemctl; then
+        for svc in mysql.service mysqld.service mariadb.service; do
+            if $SUDO systemctl enable --now "$svc" >/dev/null 2>&1 || $SUDO systemctl start "$svc" >/dev/null 2>&1; then
+                DB_SERVICE="${svc%.service}"
+                return
+            fi
+        done
+    fi
+
+    if cmd_exists service; then
+        for svc in mysql mysqld mariadb; do
+            if $SUDO service "$svc" status >/dev/null 2>&1 || $SUDO service "$svc" start >/dev/null 2>&1; then
+                DB_SERVICE="$svc"
+                return
+            fi
+        done
+    fi
+
+    say_warn "Could not auto-start the database service. Ensure MySQL/MariaDB is running."
+}
+
+mysql_root_socket_ok() {
+    $SUDO mysql --protocol=socket -u root --batch --skip-column-names -e "SELECT 1;" >/dev/null 2>&1
+}
+
+mysql_root_exec() {
+    local sql="$1"
+    if [[ "$ROOT_AUTH_SOCKET" == true ]]; then
+        $SUDO mysql --protocol=socket -u root --batch --skip-column-names -e "$sql"
+    else
+        MYSQL_PWD="$DB_ROOT_PASSWORD" $SUDO mysql -u root --batch --skip-column-names -e "$sql"
+    fi
+}
+
+mysql_root_script() {
+    if [[ "$ROOT_AUTH_SOCKET" == true ]]; then
+        $SUDO mysql --protocol=socket -u root --batch --skip-column-names "$@"
+    else
+        MYSQL_PWD="$DB_ROOT_PASSWORD" $SUDO mysql -u root --batch --skip-column-names "$@"
+    fi
+}
+
+configure_mysql() {
+    start_mysql_service
+
+    ROOT_AUTH_SOCKET=false
+    if mysql_root_socket_ok; then
+        ROOT_AUTH_SOCKET=true
+        say_info "Root socket authentication available"
+    fi
+
+    if [[ "$KEEP_ROOT_PASSWORD" == true ]]; then
+        [[ "$ROOT_AUTH_SOCKET" == true || -n "$DB_ROOT_PASSWORD" ]] || {
+            say_err "--keep-root-password requires existing password or socket auth"; exit 1; }
+        say_warn "Retaining existing root password"
+    else
+        if [[ -z "$DB_ROOT_PASSWORD" ]]; then
+            DB_ROOT_PASSWORD="$(rand_password 24)"
+            set_report MYSQL_ROOT_PASSWORD_GENERATED "Yes"
+        else
+            set_report MYSQL_ROOT_PASSWORD_GENERATED "Provided"
+        fi
+        mysql_root_script --execute "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$DB_ROOT_PASSWORD';"
+        ROOT_AUTH_SOCKET=false
+    fi
+
+    if [[ -z "$APP_DB_PASSWORD" ]]; then
+        APP_DB_PASSWORD="$(rand_password 28)"
+        set_report APP_DB_PASSWORD_GENERATED "Yes"
+    else
+        set_report APP_DB_PASSWORD_GENERATED "Provided"
+    fi
+
+    mysql_root_script <<SQL
+CREATE DATABASE IF NOT EXISTS \
+`$DB_NAME` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$APP_DB_USER'@'localhost' IDENTIFIED BY '$APP_DB_PASSWORD';
+GRANT ALL PRIVILEGES ON \
+`$DB_NAME`.* TO '$APP_DB_USER'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+
+    MYSQL_PWD="$APP_DB_PASSWORD" mysql -u "$APP_DB_USER" "$DB_NAME" <<'SQL'
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
-    role ENUM('employee', 'admin') DEFAULT 'employee',
+    role ENUM('employee','admin') DEFAULT 'employee',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email (email),
-    INDEX idx_role (role)
+    INDEX idx_email (email)
 );
 
--- Attendance records table
 CREATE TABLE IF NOT EXISTS attendance_records (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -212,427 +394,349 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     clock_out_time DATETIME,
     break_start_time DATETIME,
     break_end_time DATETIME,
-    total_hours DECIMAL(4,2) DEFAULT 0.00,
-    status ENUM('present', 'absent', 'partial') DEFAULT 'absent',
+    total_hours DECIMAL(6,2) DEFAULT 0,
+    status ENUM('present','absent','partial') DEFAULT 'absent',
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_user_date (user_id, date),
+    UNIQUE KEY uniq_user_date (user_id, date),
     INDEX idx_user_date (user_id, date),
-    INDEX idx_date (date),
-    INDEX idx_status (status)
+    CONSTRAINT fk_attendance_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Authentication tokens table (for 2FA)
 CREATE TABLE IF NOT EXISTS auth_tokens (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    token VARCHAR(10) NOT NULL,
-    type ENUM('2fa', 'reset') DEFAULT '2fa',
+    token VARCHAR(16) NOT NULL,
+    type ENUM('2fa','reset') DEFAULT '2fa',
     expires_at DATETIME NOT NULL,
     used BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user_token (user_id, token),
-    INDEX idx_expires (expires_at)
+    INDEX idx_token (token),
+    CONSTRAINT fk_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+SQL
 
--- User sessions table
-CREATE TABLE IF NOT EXISTS user_sessions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    session_token VARCHAR(255) NOT NULL,
-    expires_at DATETIME NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_session_token (session_token),
-    INDEX idx_user_expires (user_id, expires_at)
-);
-
--- Report generations table
-CREATE TABLE IF NOT EXISTS report_generations (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    report_type VARCHAR(100) NOT NULL,
-    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user_type (user_id, report_type),
-    INDEX idx_generated (generated_at)
-);
-EOF
-
-    # Insert default users
-    mysql -u $DB_USER -p$DB_PASSWORD $DB_NAME << 'EOF'
--- Insert default admin user
-INSERT INTO users (name, email, password, role) VALUES 
-('Admin User', 'admin@company.com', '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'admin')
-ON DUPLICATE KEY UPDATE name='Admin User', role='admin';
-
--- Insert default employees
-INSERT INTO users (name, email, password, role) VALUES 
-('Basim Ahmed', 'basim@company.com', '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'employee'),
-('Sara Mohammed', 'sara@company.com', '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'employee'),
-('Ahmed Ali', 'ahmed@company.com', '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'employee')
-ON DUPLICATE KEY UPDATE name=VALUES(name);
-EOF
-
-    print_success "Database schema and default users created"
+    say_ok "Database '$DB_NAME' prepared"
 }
 
-clone_repository() {
-    print_step "Cloning repository..."
-    
-    if [[ -d "$PROJECT_NAME" ]]; then
-        print_warning "Project directory exists, pulling latest changes..."
-        cd $PROJECT_NAME
-        git pull origin main
-        cd ..
-    else
-        git clone https://github.com/attiacloudgalaxy/attendance-app.git $PROJECT_NAME
+seed_default_accounts() {
+    MYSQL_PWD="$APP_DB_PASSWORD" mysql -u "$APP_DB_USER" "$DB_NAME" <<'SQL'
+INSERT INTO users (name, email, password, role)
+VALUES
+  ('Admin User',   'admin@company.com',  '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'admin'),
+  ('Basim Ahmed',  'basim@company.com', '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'employee'),
+  ('Sara Mohammed','sara@company.com',  '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'employee'),
+  ('Ahmed Ali',    'ahmed@company.com', '$2b$10$8K1p/a0dRzZuyFJGWWdone.2YoxPOFjg4PAKKgGgEuU4ncTqxs0w.', 'employee')
+ON DUPLICATE KEY UPDATE name=VALUES(name), role=VALUES(role);
+SQL
+    say_ok "Default admin and employees available"
+}
+
+# ----- Repository --------------------------------------------------------------
+prepare_directory() {
+    if [[ "$USE_CURRENT" == true ]]; then
+        PROJECT_PATH="$PWD"
+        say_info "Using current directory: $PROJECT_PATH"
+        return
     fi
-    
-    cd $PROJECT_NAME
-    print_success "Repository cloned/updated"
+
+    PROJECT_PATH="$PWD/$PROJECT_DIR"
+    if [[ -d "$PROJECT_PATH" ]]; then
+        if [[ "$FORCE_REINSTALL" == true ]]; then
+            say_warn "Removing existing directory $PROJECT_PATH"
+            rm -rf "$PROJECT_PATH"
+        else
+            say_warn "Directory $PROJECT_PATH exists; pulling latest"
+            (cd "$PROJECT_PATH" && git pull --ff-only) || true
+            return
+        fi
+    fi
+
+    say_step "Cloning repository"
+    git clone "$REPO_URL" "$PROJECT_PATH"
 }
 
+# ----- Email configuration -----------------------------------------------------
+collect_email_settings() {
+    if [[ "$SKIP_EMAIL" == true ]]; then
+        say_info "Skipping email configuration per flag"
+        return
+    fi
+
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        if [[ -z "$EMAIL_HOST" || -z "$EMAIL_USER" || -z "$EMAIL_PASS" ]]; then
+            say_warn "Email credentials not supplied; skipping. Set later in backend/.env"
+            SKIP_EMAIL=true
+        fi
+        return
+    fi
+
+    echo
+    read -r -p "Configure SMTP for MFA emails? [y/N]: " choice || true
+    if [[ "${choice,,}" != y* ]]; then
+        SKIP_EMAIL=true
+        say_info "Email disabled; you can edit backend/.env later"
+        return
+    fi
+
+    EMAIL_HOST="$(prompt "SMTP host" "smtp.gmail.com")"
+    EMAIL_PORT="$(prompt "SMTP port" "$EMAIL_PORT")"
+    EMAIL_USER="$(prompt "SMTP username" "$EMAIL_USER")"
+    EMAIL_PASS="$(prompt_secret "SMTP password/app password")"
+}
+
+# ----- Backend -----------------------------------------------------------------
 setup_backend() {
-    print_step "Setting up backend..."
-    
-    cd backend
-    
-    # Install dependencies
-    npm install
-    
-    # Create .env file
-    cat > .env << EOF
-# Database Configuration
+    say_step "Configuring backend"
+    pushd "$PROJECT_PATH/backend" >/dev/null
+
+    npm install --no-audit --no-fund
+
+    local JWT_SECRET
+    JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n' | cut -c1-64)"
+
+    cat > .env <<EOF
+# Auto-generated on $(date)
 DB_HOST=localhost
-DB_USER=$DB_USER
-DB_PASSWORD=$DB_PASSWORD
+DB_USER=$APP_DB_USER
+DB_PASSWORD=$APP_DB_PASSWORD
 DB_NAME=$DB_NAME
 DB_PORT=3306
 
-# JWT Configuration
-JWT_SECRET=$(openssl rand -base64 32)
+JWT_SECRET=$JWT_SECRET
 JWT_EXPIRES_IN=24h
 
-# Server Configuration
 PORT=$BACKEND_PORT
-NODE_ENV=development
-
-# Email Configuration (for 2FA)
-EMAIL_HOST=$EMAIL_HOST
-EMAIL_PORT=$EMAIL_PORT
-EMAIL_SECURE=false
-EMAIL_USER=$EMAIL_USER
-EMAIL_PASS=$EMAIL_PASS
-
-# CORS Configuration
+NODE_ENV=production
+ENABLE_HTTPS=false
 FRONTEND_URL=http://localhost:$FRONTEND_PORT
 
-# Rate Limiting
+EMAIL_HOST=${EMAIL_HOST}
+EMAIL_PORT=${EMAIL_PORT}
+EMAIL_USER=${EMAIL_USER}
+EMAIL_PASS=${EMAIL_PASS}
+EMAIL_FROM=${EMAIL_USER:-noreply@company.com}
+
 RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=1000
+RATE_LIMIT_MAX_REQUESTS=200
 EOF
 
-    print_success "Backend configured"
-    cd ..
+    if [[ -f package.json && $(jq -r '.scripts | has("migrate")' package.json) == true ]]; then
+        npm run migrate || say_warn "Database migration script failed; verify manually"
+    fi
+
+    popd >/dev/null
+    say_ok "Backend ready"
 }
 
+# ----- Frontend ----------------------------------------------------------------
 setup_frontend() {
-    print_step "Setting up frontend..."
-    
-    cd frontend
-    
-    # Install dependencies
-    npm install
-    
-    # Create .env file
-    cat > .env << EOF
+    say_step "Configuring frontend"
+    pushd "$PROJECT_PATH/frontend" >/dev/null
+
+    npm install --no-audit --no-fund
+
+    cat > .env <<EOF
 REACT_APP_API_URL=http://localhost:$BACKEND_PORT
 PORT=$FRONTEND_PORT
 GENERATE_SOURCEMAP=false
 EOF
 
-    print_success "Frontend configured"
-    cd ..
+    popd >/dev/null
+    say_ok "Frontend ready"
 }
 
-create_startup_scripts() {
-    print_step "Creating startup scripts..."
-    
-    # Create start-backend script
-    cat > start-backend.sh << 'EOF'
-#!/bin/bash
-echo "🚀 Starting Attendance Management System Backend..."
-cd backend
-echo "📦 Installing/updating dependencies..."
-npm install
-echo "🔧 Running database migrations..."
-node scripts/migrate.js 2>/dev/null || echo "⚠️  Migration script not found, skipping..."
-echo "🌟 Starting backend server..."
+# ----- Startup scripts ---------------------------------------------------------
+create_helpers() {
+        say_step "Writing helper scripts"
+        cat > "$PROJECT_PATH/start-backend.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/backend"
+if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+    export NVM_DIR="$HOME/.nvm"
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"
+fi
+npm install --no-audit --no-fund
 npm start
 EOF
 
-    # Create start-frontend script  
-    cat > start-frontend.sh << 'EOF'
-#!/bin/bash
-echo "🚀 Starting Attendance Management System Frontend..."
-cd frontend
-echo "📦 Installing/updating dependencies..."
-npm install
-echo "🌟 Starting frontend development server..."
+        cat > "$PROJECT_PATH/start-frontend.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/frontend"
+if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+    export NVM_DIR="$HOME/.nvm"
+    # shellcheck disable=SC1090
+    . "$NVM_DIR/nvm.sh"
+fi
+npm install --no-audit --no-fund
 npm start
 EOF
 
-    # Create start-all script
-    cat > start-all.sh << 'EOF'
-#!/bin/bash
-echo "🚀 Starting Complete Attendance Management System..."
-
-# Function to kill processes on exit
-cleanup() {
-    echo "🛑 Shutting down services..."
-    pkill -f "node.*server.js" 2>/dev/null || true
-    pkill -f "react-scripts start" 2>/dev/null || true
-    exit 0
-}
-
-# Set trap to cleanup on script exit
-trap cleanup SIGINT SIGTERM EXIT
-
-# Start backend in background
-echo "📡 Starting backend server..."
-cd backend && npm start &
-BACKEND_PID=$!
-
-# Wait a bit for backend to start
+        cat > "$PROJECT_PATH/start-all.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+trap '[[ -n "${BACK_PID:-}" ]] && kill "$BACK_PID" 2>/dev/null || true;
+            [[ -n "${FRONT_PID:-}" ]] && kill "$FRONT_PID" 2>/dev/null || true' EXIT
+"$SCRIPT_DIR/start-backend.sh" & BACK_PID=$!
 sleep 5
-
-# Start frontend in background
-echo "🌐 Starting frontend server..."
-cd ../frontend && npm start &
-FRONTEND_PID=$!
-
-echo ""
-echo "✅ System is starting up..."
-echo "🔗 Backend: http://localhost:3001"
-echo "🔗 Frontend: http://localhost:3111" 
-echo ""
-echo "Press Ctrl+C to stop all services"
-
-# Wait for processes
-wait $BACKEND_PID $FRONTEND_PID
+"$SCRIPT_DIR/start-frontend.sh" & FRONT_PID=$!
+wait
 EOF
 
-    # Make scripts executable
-    chmod +x start-backend.sh start-frontend.sh start-all.sh
-    
-    print_success "Startup scripts created"
+        chmod +x "$PROJECT_PATH"/start-*.sh
+        say_ok "Helper scripts created"
 }
 
-create_systemd_services() {
-    if [[ "$DISTRO" == "ubuntu" ]] && [[ "$EUID" -eq 0 ]]; then
-        print_step "Creating systemd services..."
-        
-        # Backend service
-        cat > /etc/systemd/system/attendance-backend.service << EOF
+# ----- Systemd units -----------------------------------------------------------
+create_systemd_units() {
+    [[ "$OS" == "linux" && "$SKIP_SYSTEMD" == false && -n "$SUDO" ]] || return
+    [[ -d /etc/systemd/system ]] || return
+
+    say_step "Creating systemd units"
+    local svc_user
+    svc_user="${SUDO_USER:-$(id -un)}"
+
+    cat <<EOF | $SUDO tee /etc/systemd/system/attendance-backend.service >/dev/null
 [Unit]
-Description=Attendance Management System Backend
+Description=Attendance Backend Service
 After=network.target mysql.service
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=$PWD/backend
+User=$svc_user
+WorkingDirectory=$PROJECT_PATH/backend
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=10
+ExecStart=$(command -v node) server.js
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-        # Frontend service (for production build)
-        cat > /etc/systemd/system/attendance-frontend.service << EOF
+    cat <<EOF | $SUDO tee /etc/systemd/system/attendance-frontend.service >/dev/null
 [Unit]
-Description=Attendance Management System Frontend
+Description=Attendance Frontend Service
 After=network.target
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=$PWD/frontend
-ExecStart=/usr/bin/npx serve -s build -l $FRONTEND_PORT
-Restart=always
-RestartSec=10
+User=$svc_user
+WorkingDirectory=$PROJECT_PATH/frontend
+ExecStart=$(command -v npx) serve -s build -l $FRONTEND_PORT
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-        systemctl daemon-reload
-        print_success "Systemd services created"
-    fi
+    $SUDO systemctl daemon-reload
+    say_ok "Systemd units prepared (enable manually with: sudo systemctl enable attendance-*.service)"
 }
 
-get_email_config() {
-    print_step "Email Configuration for 2FA (Optional)"
-    print_info "You can skip this and configure email later in the .env file"
-    
-    echo -e "\n${YELLOW}Do you want to configure email for 2FA now? (y/N):${NC}"
-    read -r configure_email
-    
-    if [[ "$configure_email" =~ ^[Yy]$ ]]; then
-        echo -e "${YELLOW}Enter SMTP host (e.g., smtp.gmail.com):${NC}"
-        read -r EMAIL_HOST
-        
-        echo -e "${YELLOW}Enter email address:${NC}"
-        read -r EMAIL_USER
-        
-        echo -e "${YELLOW}Enter email password or app password:${NC}"
-        read -s EMAIL_PASS
-        echo
-        
-        print_success "Email configuration saved"
+# ----- Validation --------------------------------------------------------------
+validate_install() {
+    MYSQL_PWD="$APP_DB_PASSWORD" mysql -u "$APP_DB_USER" "$DB_NAME" -e "SELECT COUNT(*) FROM users;" >/dev/null 2>&1 \
+        || say_warn "DB validation query failed."
+    node -v >/dev/null 2>&1 || say_warn "Node.js not reachable in PATH."
+}
+
+# ----- Reporting ---------------------------------------------------------------
+write_summary() {
+    local root_line
+    if [[ "$KEEP_ROOT_PASSWORD" == true ]]; then
+        root_line="(unchanged)"
     else
-        print_info "Email configuration skipped - 2FA will use dummy tokens for testing"
+        root_line="$DB_ROOT_PASSWORD"
+    fi
+
+    cat > "$PROJECT_PATH/$SUMMARY_FILE" <<EOF
+Attendance Management System - Installation Summary
+Generated: $(date)
+
+Application URLs:
+  Frontend: http://localhost:$FRONTEND_PORT
+  Backend : http://localhost:$BACKEND_PORT
+
+Default Accounts:
+  Admin    : admin@company.com / admin123
+  Employee : basim@company.com / basim123
+  Employee : sara@company.com / sara123
+  Employee : ahmed@company.com / ahmed123
+
+Database Credentials:
+  Host     : localhost
+  Schema   : $DB_NAME
+  App User : $APP_DB_USER
+  App Pass : $APP_DB_PASSWORD
+    Root Pass: $root_line
+
+Metadata:
+  Repository: $REPO_URL
+  Project Dir: $PROJECT_PATH
+  Node.js   : $(node -v 2>/dev/null || echo "unknown")
+
+Notes:
+  - Helper scripts: start-backend.sh, start-frontend.sh, start-all.sh
+  - Backend env:   backend/.env
+  - Frontend env:  frontend/.env
+EOF
+}
+
+show_summary() {
+    echo
+    echo -e "${GREEN}🎉 Installation complete!${NC}"
+    echo
+    summary_line "Project" "$PROJECT_PATH"
+    summary_line "Backend URL" "http://localhost:$BACKEND_PORT"
+    summary_line "Frontend URL" "http://localhost:$FRONTEND_PORT"
+    summary_line "DB Host" "localhost"
+    summary_line "DB Name" "$DB_NAME"
+    summary_line "DB User" "$APP_DB_USER"
+    summary_line "DB Password" "$APP_DB_PASSWORD"
+    [[ "$KEEP_ROOT_PASSWORD" == false ]] && summary_line "Root Password" "$DB_ROOT_PASSWORD"
+    summary_line "Summary File" "$PROJECT_PATH/$SUMMARY_FILE"
+    echo
+    echo "Next steps:"
+    echo "  1. cd '$PROJECT_PATH'"
+    echo "  2. ./start-all.sh"
+    echo "     (or start-backend.sh / start-frontend.sh individually)"
+    echo
+    if [[ "$SKIP_EMAIL" == true ]]; then
+        say_warn "Email/MFA SMTP not configured. Update backend/.env when ready."
     fi
 }
 
-# =============================================================================
-# Main Installation Process
-# =============================================================================
-
+# ----- Main --------------------------------------------------------------------
 main() {
-    print_banner
-    
-    print_info "This script will install the complete Attendance Management System"
-    print_info "It will install: Node.js, MySQL, clone the repository, and configure everything"
-    wait_for_user
-    
-    # Check OS and permissions
-    check_os
-    
-    if [[ "$EUID" -eq 0 ]]; then
-        print_warning "Running as root - this is OK for initial setup"
-    fi
-    
-    # Get email configuration
-    get_email_config
-    
-    # Installation steps
-    install_system_packages
-    install_nodejs
+    parse_args "$@"
+    banner
+    prepare_privileges
+    detect_platform
+    select_pkg_manager
+    update_packages
+    install_prereqs
+    install_node
     install_mysql
-    setup_database
-    clone_repository
+    configure_mysql
+    seed_default_accounts
+    prepare_directory
+    collect_email_settings
     setup_backend
     setup_frontend
-    create_startup_scripts
-    
-    # Optional: Create systemd services for production
-    if [[ "$DISTRO" == "ubuntu" ]] && [[ "$EUID" -eq 0 ]]; then
-        create_systemd_services
-    fi
-    
-    # Final setup
-    print_step "Final system verification..."
-    
-    # Test database connection
-    if mysql -u $DB_USER -p$DB_PASSWORD -e "USE $DB_NAME; SHOW TABLES;" >/dev/null 2>&1; then
-        print_success "Database connection verified"
-    else
-        print_error "Database connection failed"
-        exit 1
-    fi
-    
-    # Test Node.js
-    if node --version >/dev/null 2>&1; then
-        print_success "Node.js installation verified"
-    else
-        print_error "Node.js installation failed"
-        exit 1
-    fi
-    
-    # Show completion message
-    show_completion_info
+    create_helpers
+    create_systemd_units
+    validate_install
+    write_summary
+    show_summary
 }
 
-show_completion_info() {
-    clear
-    echo -e "${GREEN}"
-    echo "╔══════════════════════════════════════════════════════════════════╗"
-    echo "║                    🎉 INSTALLATION COMPLETE! 🎉                 ║"
-    echo "╚══════════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
-    
-    echo -e "${CYAN}📋 SYSTEM ACCESS INFORMATION${NC}"
-    echo -e "${BLUE}================================${NC}"
-    
-    echo -e "\n${YELLOW}🌐 APPLICATION URLS:${NC}"
-    echo -e "   Frontend (User Interface): ${GREEN}http://localhost:$FRONTEND_PORT${NC}"
-    echo -e "   Backend API:               ${GREEN}http://localhost:$BACKEND_PORT${NC}"
-    echo -e "   Admin Portal:              ${GREEN}http://localhost:$FRONTEND_PORT/admin${NC}"
-    
-    echo -e "\n${YELLOW}🔑 LOGIN CREDENTIALS:${NC}"
-    echo -e "   ${MAGENTA}Admin Account:${NC}"
-    echo -e "     Email:    admin@company.com"
-    echo -e "     Password: admin123"
-    
-    echo -e "\n   ${MAGENTA}Employee Accounts:${NC}"
-    echo -e "     Email: basim@company.com   | Password: basim123"
-    echo -e "     Email: sara@company.com    | Password: sara123"
-    echo -e "     Email: ahmed@company.com   | Password: ahmed123"
-    
-    echo -e "\n${YELLOW}🗄️  DATABASE ACCESS:${NC}"
-    echo -e "   Host:     localhost"
-    echo -e "   Database: $DB_NAME"
-    echo -e "   Username: $DB_USER"
-    echo -e "   Password: $DB_PASSWORD"
-    echo -e "   Port:     3306"
-    
-    echo -e "\n${YELLOW}🚀 QUICK START COMMANDS:${NC}"
-    echo -e "   Start everything:  ${GREEN}./start-all.sh${NC}"
-    echo -e "   Start backend:     ${GREEN}./start-backend.sh${NC}"
-    echo -e "   Start frontend:    ${GREEN}./start-frontend.sh${NC}"
-    
-    echo -e "\n${YELLOW}📁 PROJECT STRUCTURE:${NC}"
-    echo -e "   Project Directory: ${GREEN}$(pwd)${NC}"
-    echo -e "   Backend:          ${GREEN}$(pwd)/backend${NC}"
-    echo -e "   Frontend:         ${GREEN}$(pwd)/frontend${NC}"
-    
-    echo -e "\n${YELLOW}🔧 CONFIGURATION FILES:${NC}"
-    echo -e "   Backend Config:   ${GREEN}backend/.env${NC}"
-    echo -e "   Frontend Config:  ${GREEN}frontend/.env${NC}"
-    
-    if [[ -z "$EMAIL_HOST" ]]; then
-        echo -e "\n${YELLOW}⚠️  EMAIL CONFIGURATION:${NC}"
-        echo -e "   2FA is currently disabled. To enable:"
-        echo -e "   1. Edit ${GREEN}backend/.env${NC}"
-        echo -e "   2. Set EMAIL_HOST, EMAIL_USER, EMAIL_PASS"
-        echo -e "   3. Restart the backend server"
-    else
-        echo -e "\n${GREEN}✅ EMAIL CONFIGURED:${NC} 2FA is enabled"
-    fi
-    
-    echo -e "\n${YELLOW}📚 DOCUMENTATION:${NC}"
-    echo -e "   API Docs:         ${GREEN}API_TESTING_DOCUMENTATION.md${NC}"
-    echo -e "   Setup Guide:      ${GREEN}README.md${NC}"
-    echo -e "   HTML Docs:        ${GREEN}API_Testing_Documentation.html${NC}"
-    
-    echo -e "\n${BLUE}================================${NC}"
-    echo -e "${GREEN}🎯 Ready to start! Run: ${YELLOW}./start-all.sh${NC}"
-    echo -e "${BLUE}================================${NC}"
-}
-
-# =============================================================================
-# Script Execution
-# =============================================================================
-
-# Check if running directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
-fi
+main "$@"
